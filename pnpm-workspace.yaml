@@ -1,0 +1,13 @@
+packages:
+  - apps/frontend
+  - apps/backend
+
+onlyBuiltDependencies:
+  - '@nestjs/core'
+  - '@prisma/client'
+  - '@prisma/engines'
+  - '@scarf/scarf'
+  - bcrypt
+  - esbuild
+  - msgpackr-extract
+  - prisma

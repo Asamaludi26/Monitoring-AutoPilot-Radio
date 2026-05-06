@@ -1,3 +1,52 @@
+# GitHub (keep workflows)
 .github/
-!.github/workflows
+!.github/workflows/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# Prisma generated
+apps/backend/generated/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+apps/rf-analytics/.venv/
+
+# Go
+apps/worker-go/worker-go
+apps/worker-go/*.exe
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
 

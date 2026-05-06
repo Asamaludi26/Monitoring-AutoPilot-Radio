@@ -1,0 +1,202 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+enum DeviceVendor {
+  CAMBIUM
+  MIMOSA
+}
+
+enum DeviceModel {
+  // Cambium
+  EPMP_1000
+  EPMP_2000
+  EPMP_3000
+  PMP_450
+  PMP_450I
+  PMP_450M
+  CNWAVE_V5000
+  // Mimosa
+  MIMOSA_B5
+  MIMOSA_A5
+  MIMOSA_C5X
+}
+
+enum DeviceRole {
+  ACCESS_POINT
+  SUBSCRIBER_MODULE
+  BACKHAUL_MASTER
+  BACKHAUL_SLAVE
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  DEGRADED
+  MAINTENANCE
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ── Models ────────────────────────────────────────────────────────────────────
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String
+  role           UserRole @default(OPERATOR)
+  totpSecret     String?
+  totpEnabled    Boolean  @default(false)
+  lastLoginAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  auditLogs AuditLog[]
+  jobs      OrchestrationJob[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model RadioDevice {
+  id              String       @id @default(cuid())
+  name            String
+  ipAddress       String       @unique
+  macAddress      String?      @unique
+  vendor          DeviceVendor
+  model           DeviceModel
+  role            DeviceRole
+  status          DeviceStatus @default(OFFLINE)
+  snmpCommunity   String?
+  snmpVersion     Int          @default(2)
+  snmpAuthKey     String?      // Encrypted AES-256-GCM
+  snmpPrivKey     String?      // Encrypted AES-256-GCM
+  latitude        Float?
+  longitude       Float?
+  parentId        String?
+  siteName        String?
+  frequencyMhz    Float?
+  channelWidth    Int?
+  txPowerDbm      Int?
+  antenaGainDbi   Float?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  parent   RadioDevice?  @relation("DeviceTopology", fields: [parentId], references: [id])
+  children RadioDevice[] @relation("DeviceTopology")
+  alerts   Alert[]
+  jobs     OrchestrationJob[]
+
+  @@index([status])
+  @@index([vendor])
+  @@index([parentId])
+  @@map("radio_devices")
+}
+
+model Alert {
+  id          String        @id @default(cuid())
+  deviceId    String
+  severity    AlertSeverity
+  status      AlertStatus   @default(OPEN)
+  title       String
+  message     String
+  resolvedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  device RadioDevice @relation(fields: [deviceId], references: [id])
+
+  @@index([deviceId, status])
+  @@index([severity, status])
+  @@map("alerts")
+}
+
+model OrchestrationJob {
+  id          String    @id @default(cuid())
+  deviceId    String
+  createdById String
+  type        String
+  payload     Json
+  status      JobStatus @default(PENDING)
+  result      Json?
+  error       String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  device    RadioDevice @relation(fields: [deviceId], references: [id])
+  createdBy User        @relation(fields: [createdById], references: [id])
+
+  @@index([deviceId, status])
+  @@index([createdById])
+  @@map("orchestration_jobs")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entity     String
+  entityId   String?
+  oldData    Json?
+  newData    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model FrequencyBlacklist {
+  id          String  @id @default(cuid())
+  startMhz    Float
+  endMhz      Float
+  reason      String
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([isActive])
+  @@map("frequency_blacklists")
+}
