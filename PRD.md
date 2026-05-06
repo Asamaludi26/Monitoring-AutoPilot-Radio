@@ -1,93 +1,676 @@
-# Product Requirement Document (PRD): Centralized Radio Management System (CRMS)
+# Product Requirements Document (PRD)
 
-**Project Name:** Radio Spectrum & Traffic Optimizer (RSTO)
-**Author:** Senior Developer & Network Engineer
-**Status:** Draft / Foundation
-**Date:** 2026-05-06
-**Target Devices:** 140+ Units (Cambium Networks & Mimosa by Airspan)
+# RF Spectrum Orchestration & Compliance Platform (RSOCP)
+
+Version: 2.0
+Status: Revised Draft
+Author: System Architecture Review
+Date: 2026-05-06
+
+---
+
+# 1. Executive Summary
+
+RF Spectrum Orchestration & Compliance Platform (RSOCP) adalah platform terpusat untuk monitoring, analitik, orkestrasi konfigurasi radio wireless, optimasi spektrum, dan otomatisasi kepatuhan regulasi pada infrastruktur radio ISP/WISP.
+
+Platform ini dirancang untuk mengelola perangkat multi-vendor seperti:
+
+- Cambium Networks
+- Mimosa by Airspan
+- Vendor lain berbasis SNMP/API di masa depan
+
+Target utama sistem:
+
+1. Monitoring real-time seluruh radio
+2. Analitik kualitas RF secara terpusat
+3. Optimasi spektrum berbasis scoring engine
+4. Orkestrasi perubahan konfigurasi secara aman
+5. Regulatory compliance automation
+6. Minimasi interferensi dan downtime
+7. Skalabilitas hingga ribuan perangkat
+
+Platform ini bukan sekadar dashboard monitoring, tetapi bertindak sebagai:
+
+# RF Orchestration & Compliance Platform
 
 ---
 
-## 1. Executive Summary
-Membangun platform manajemen terpusat untuk memantau, menganalisis, dan mengoptimalkan infrastruktur transmisi wireless. Fokus utama adalah efisiensi spektrum, maksimalisasi bandwidth melalui pemilihan frekuensi otomatis/terarah, kepatuhan terhadap regulasi pemerintah (Balmon), dan visualisasi trafik real-time dari 140+ perangkat multi-vendor.
+# 2. Problem Statement
 
-## 2. Tujuan & Objektif
-1.  **Sentralisasi:** Satu dashboard untuk semua perangkat Cambium dan Mimosa.
-2.  **Visibilitas:** Monitoring real-time metrik radio (RSSI, SNR, MCS, Noise Floor, Throughput).
-3.  **Optimalisasi:** Fitur rekomendasi dan eksekusi frekuensi terbaik untuk mengatasi interferensi.
-4.  **Kepatuhan Regulasi (Compliance):** Memastikan operasional radio mematuhi aturan Balai Monitor (Balmon) secara cepat saat terjadi inspeksi, dan mengamankan frekuensi kritis secara permanen.
-5.  **Otomatisasi:** Mengurangi beban kerja manual engineer dalam pengecekan satu-per-satu ke UI perangkat.
+Saat ini engineer melakukan:
 
-## 3. User Personas & Roles
-* **Super Admin:** Akses penuh (Manajemen user, integrasi API/SNMP, eksekusi frekuensi, aktivasi Balmon Mode).
-* **Network Engineer:** Monitoring dan eksekusi optimasi frekuensi (Write access to Radio).
-* **NOC Viewer:** Monitoring dashboard dan log (Read-only).
+- pengecekan radio satu per satu
+- login manual ke device
+- monitoring terpisah
+- perubahan frekuensi secara manual
+- pengecekan regulasi secara manual
 
-## 4. Alur Bisnis (Business Logic Flow)
+Masalah yang muncul:
 
-### A. Discovery & Inventory Flow
-1. User memasukkan IP, Kredensial, dan Vendor (Cambium/Mimosa).
-2. Sistem melakukan *validation handshake* via SNMP/API.
-3. Data disimpan ke database PostgreSQL menggunakan Prisma ORM.
-
-### B. Monitoring Flow (Polling)
-1. **Background Worker (Python/NestJS)** melakukan polling berkala.
-2. Mengambil data metrik: Tx/Rx Rate, Frequency, Signal Strength, Channel Width, EIRP, dan Spectrum Data.
-3. Data disimpan ke database (PostgreSQL untuk status, Prometheus untuk Time-series trafik).
-
-### C. Frequency Optimization Flow (Normal Mode)
-1. **Analisis:** Sistem membandingkan Noise Floor dan Interference pada spektrum saat ini.
-2. **Rekomendasi:** Sistem memberikan saran frekuensi terbaik untuk maksimalisasi bandwidth.
-3. **Validasi Blacklist:** Sistem memastikan frekuensi yang disarankan **TIDAK** berada di frekuensi kritis/terlarang (BMKG, Radar Cuaca, Satelit, Penerbangan).
-4. **Execution:** Engineer mengeksekusi rekomendasi.
-
-### D. Regulatory Compliance Flow (Galat Balmon Mode)
-1. **Activation:** Super Admin mengaktifkan "Balmon Mode" di Dashboard (Single-click / Bulk Action).
-2. **Hard Constraints Application:** Sistem secara paksa mengubah konfigurasi 140+ perangkat secara paralel/terstruktur ke batasan regulasi:
-    *   **Range Frekuensi:** Dipaksa masuk ke rentang **5725 - 5825 MHz**.
-    *   **Channel Width:** Dipaksa menjadi **20 MHz**.
-    *   **EIRP (Transmit Power + Antenna Gain):** Dibatasi maksimum **36 dBm (4 Watt)**.
-3. **Bandwidth Maximization inside Balmon Mode:** Karena dibatasi di 20MHz, sistem akan mencari channel paling bersih *hanya* di dalam rentang 5725-5825 MHz untuk mempertahankan Modulasi (MCS) tertinggi agar throughput pelanggan tetap optimal.
-4. **Deactivation (Post-Inspection):** Super Admin mematikan "Balmon Mode". Sistem akan menyarankan *roll-back* ke profil frekuensi "Max Bandwidth" sebelumnya, dengan tetap menerapkan aturan *Blacklist Frequency* yang ketat (menghindari frekuensi BMKG/Satelit).
-
-## 5. Fitur Fungsional (Functional Requirements)
-
-| ID | Fitur | Deskripsi |
-| :--- | :--- | :--- |
-| **FR-01** | Multi-Vendor Dashboard | View terpadu untuk perangkat Cambium (ePTP/TDD) dan Mimosa. |
-| **FR-02** | Real-time Traffic Graph | Grafik Tx/Rx menggunakan Recharts/D3.js di frontend. |
-| **FR-03** | Spectrum Analyzer | Visualisasi noise floor spektrum radio dalam bentuk heatmap/graph. |
-| **FR-04** | Remote Config Execution | Kemampuan mengubah frekuensi, width, dan tx-power tanpa buka UI radio. |
-| **FR-05** | Bulk Action | Eksekusi perubahan ke banyak perangkat sekaligus. |
-| **FR-06** | Alerting System | Notifikasi via Telegram/Email jika link down atau interferensi tinggi. |
-| **FR-07** | **Galat Balmon Mode** | Mode darurat compliance. Otomatis set Freq: 5725-5825MHz, Width: 20MHz, EIRP: Max 36dBm massal. |
-| **FR-08** | **Frequency Blacklist** | Database internal untuk memblokir radio menggunakan frekuensi BMKG, DFS Radar, & Satelit selamanya. |
-
-## 6. Spesifikasi Teknis & Arsitektur
-Sesuai dengan *Workspace Standards* dan *Tech Stack* yang telah ditetapkan:
-
-* **Frontend:** ReactJS (Vite), TypeScript, Tailwind CSS, Shadcn UI.
-* **Backend:** NestJS (TypeScript) dengan Feature-Driven Architecture.
-* **Database:** PostgreSQL (Primary), Prisma (ORM), Redis (Caching/Queue).
-* **Protocol:** SNMP v2c/v3 (Primary), SSH/Paramiko (Fallback), Vendor REST API (jika tersedia).
-* **Infrastructure:** Docker (Blueprint Pattern), Debian 13, GitHub Actions CI/CD.
-
-## 7. Struktur Data (High-Level Schema)
-* **Radios:** ID, Vendor, Model, IP, MAC, Credentials, Role, Frequency_ID, Is_Balmon_Active.
-* **Metrics:** Radio_ID, Tx_Rate, Rx_Rate, Signal, SNR, Noise, Timestamp.
-* **Audit_Logs:** User_ID, Action, Radio_ID, Old_Config, New_Config, Status, Timestamp.
-* **Freq_Exclusions:** ID, Start_Freq, End_Freq, Category (BMKG/Satellite/Radar), Description.
-
-## 8. Poin Penting & Mitigasi Risiko (Crucial Points)
-1.  **Validasi EIRP:** EIRP dihitung dari `Tx Power + Antenna Gain`. Sistem harus membaca parameter antena (misal: antena 25 dBi di Mimosa) dan memastikan sistem menurunkan `Tx Power` maksimal ke 11 dBm saat Balmon Mode agar total tidak lebih dari 36 dBm.
-2.  **Mitigasi BMKG & Satelit:** Pada saat normal (Non-Balmon), integrasikan fitur *Manual Exclusion* (seperti pada Mimosa) secara terpusat untuk memblokir rentang seperti 5600-5650 MHz (Radar Cuaca) di level API aplikasi, sehingga engineer tidak bisa tidak sengaja memilihnya.
-3.  **Downtime saat Balmon Mode:** Perubahan frekuensi massal akan menyebabkan RTO. Sistem queue Redis/BullMQ harus mengeksekusi ini berdasarkan prioritas area atau topologi ring agar jaringan tidak mati total secara bersamaan.
-
-## 9. Roadmap Pengembangan
-* **Phase 1 (MVP):** Dashboard monitoring read-only & Inventory management.
-* **Phase 2:** Integrasi grafik trafik, Alerting system, & Frequency Blacklist DB.
-* **Phase 3:** Modul Optimasi & Eksekusi Konfigurasi (Normal Mode).
-* **Phase 4:** Eksekusi Bulk Action & **Galat Balmon Mode (Compliance Automation)**.
+- Human error tinggi
+- Sulit melakukan compliance massal
+- Sulit mendeteksi interferensi
+- Tidak ada centralized RF intelligence
+- Downtime saat perubahan frekuensi
+- Tidak ada rollback otomatis
+- Sulit melakukan audit
 
 ---
-*Dokumen ini bersifat dinamis dan akan diperbarui seiring dengan perkembangan teknis di lapangan.*
+
+# 3. Business Goals
+
+| Goal                   | Description                                       |
+| ---------------------- | ------------------------------------------------- |
+| Centralized Management | Seluruh radio dapat dimonitor dari satu platform  |
+| RF Optimization        | Maksimalisasi kualitas link dan throughput        |
+| Compliance Automation  | Kepatuhan regulasi dapat dilakukan massal         |
+| Operational Efficiency | Mengurangi pekerjaan manual engineer              |
+| Reliability            | Mengurangi outage akibat perubahan konfigurasi    |
+| Scalability            | Mendukung pertumbuhan perangkat hingga >5000 node |
+
+---
+
+# 4. User Roles
+
+## 4.1 Super Admin
+
+Hak akses:
+
+- Full access
+- Global orchestration
+- Regulatory mode activation
+- User management
+- System settings
+- Rollback approval
+
+## 4.2 Network Engineer
+
+Hak akses:
+
+- Monitoring
+- RF analysis
+- Frequency recommendation execution
+- Single/bulk configuration
+- View audit logs
+
+## 4.3 NOC Operator
+
+Hak akses:
+
+- Read-only monitoring
+- Alarm acknowledgement
+- Dashboard access
+- Incident visibility
+
+---
+
+# 5. System Scope
+
+## In Scope
+
+- Multi-vendor radio monitoring
+- RF analytics
+- Traffic analytics
+- Frequency recommendation
+- Safe remote configuration
+- Bulk orchestration
+- Regulatory compliance mode
+- Audit logging
+- Alerting
+- Topology visualization
+- Rollback engine
+
+## Out of Scope (Phase Awal)
+
+- AI autonomous optimization penuh
+- Routing protocol management
+- MPLS orchestration
+- Automatic tower alignment
+- SD-WAN management
+
+---
+
+# 6. High Level Architecture
+
+```text
+Frontend Dashboard
+        |
+API Gateway
+        |
+-------------------------------------------------
+|               |               |                |
+Inventory    RF Analytics   Compliance      Alerting
+Service      Service        Service         Service
+|               |               |                |
+-------------------------------------------------
+        |
+Task Orchestrator
+(RabbitMQ / BullMQ)
+        |
+Device Workers
+        |
+SNMP / REST API / SSH
+        |
+Wireless Radios
+```
+
+---
+
+# 7. Recommended Technology Stack
+
+| Layer                | Technology              |
+| -------------------- | ----------------------- |
+| Frontend             | React + TypeScript      |
+| UI Framework         | TailwindCSS + Shadcn UI |
+| Visualization        | Apache ECharts          |
+| Backend API          | NestJS                  |
+| Worker Engine        | Go                      |
+| RF Analytics         | Python                  |
+| Queue System         | RabbitMQ                |
+| Relational Database  | PostgreSQL              |
+| Time-Series Database | TimescaleDB             |
+| Cache                | Redis                   |
+| Monitoring           | Grafana                 |
+| Metrics              | Prometheus              |
+| Logs                 | Loki                    |
+| Containerization     | Docker                  |
+| Orchestration        | Kubernetes              |
+| CI/CD                | GitHub Actions          |
+| OS                   | Debian 13               |
+
+---
+
+# 8. Core System Modules
+
+# 8.1 Inventory Management Module
+
+Fungsi:
+
+- Menyimpan seluruh data radio
+- Device discovery
+- Vendor classification
+- Credential management
+- Firmware inventory
+- Antenna profile inventory
+
+Data yang disimpan:
+
+- IP Address
+- MAC Address
+- Vendor
+- Model
+- Firmware Version
+- Country Code
+- Antenna Gain
+- GPS Sync Status
+- Link Role
+- Topology Relationship
+
+---
+
+# 8.2 Real-Time Monitoring Module
+
+Metrik utama:
+
+| Metric           | Description                |
+| ---------------- | -------------------------- |
+| RSSI             | Signal strength            |
+| SNR              | Signal-to-noise ratio      |
+| CINR             | Carrier interference ratio |
+| MCS Rate         | Modulation coding scheme   |
+| Tx/Rx Throughput | Traffic rate               |
+| Retry Rate       | Retransmission percentage  |
+| Noise Floor      | RF interference baseline   |
+| Air Utilization  | Channel congestion         |
+| DFS Events       | Radar detection events     |
+| Temperature      | Device thermal state       |
+| CPU/RAM          | Device health              |
+
+Polling interval:
+
+| Metric Type   | Interval     |
+| ------------- | ------------ |
+| Traffic       | 15 seconds   |
+| RF Metrics    | 30 seconds   |
+| Device Health | 60 seconds   |
+| Spectrum Scan | 5-15 minutes |
+
+---
+
+# 8.3 RF Analytics Engine
+
+RF Analytics Engine bertanggung jawab untuk:
+
+- Analisis kualitas spektrum
+- Deteksi interferensi
+- Channel scoring
+- Adjacent channel detection
+- Historical RF correlation
+- Frequency recommendation
+
+Sistem tidak hanya menentukan frekuensi berdasarkan noise floor.
+
+Parameter analisis:
+
+| Parameter             | Weight |
+| --------------------- | ------ |
+| SNR                   | High   |
+| Noise Floor           | High   |
+| MCS Stability         | High   |
+| Retry Rate            | High   |
+| DFS Event             | Medium |
+| Air Utilization       | Medium |
+| Historical Stability  | High   |
+| Adjacent Interference | High   |
+
+Contoh RF Scoring Formula:
+
+```text
+RF_SCORE =
+(SNR * Weight)
++ (MCS Stability)
+- (Noise Penalty)
+- (Retry Penalty)
+- (DFS Penalty)
+- (Adjacent Channel Interference)
++ (Historical Stability)
+```
+
+---
+
+# 8.4 Frequency Recommendation Engine
+
+Mode operasi:
+
+## Advisory Mode
+
+Sistem:
+
+- hanya memberikan rekomendasi
+- engineer melakukan approval manual
+
+## Assisted Automation Mode
+
+Sistem:
+
+- melakukan perubahan otomatis
+- per-link execution
+- rollback otomatis jika gagal
+
+## Autonomous Mode (Future)
+
+Sistem:
+
+- melakukan RF optimization otomatis penuh
+- berbasis AI prediction
+
+Catatan:
+
+Mode autonomous tidak diimplementasikan pada fase awal.
+
+---
+
+# 8.5 Safe Configuration Engine
+
+Fungsi:
+
+- Remote configuration
+- Safe commit
+- Validation
+- Rollback otomatis
+- Dependency awareness
+
+Safe Commit Flow:
+
+```text
+Apply Config
+      ↓
+Wait Reconnect
+      ↓
+Heartbeat Validation
+      ↓
+Success → Commit
+Failure → Rollback
+```
+
+Rollback rule:
+
+- Jika radio tidak reconnect dalam 30 detik
+- Sistem otomatis revert ke konfigurasi sebelumnya
+
+---
+
+# 8.6 Topology Awareness Engine
+
+Sistem harus memahami hubungan parent-child antar radio.
+
+Contoh:
+
+```text
+POP A
+ ├── Relay B
+ │     ├── Client C
+ │     └── Client D
+```
+
+Tujuan:
+
+- Mencegah mass outage
+- Menghindari perubahan parent terlebih dahulu
+- Menentukan execution order
+- Menjaga stabilitas network topology
+
+---
+
+# 8.7 Regulatory Compliance Engine
+
+## Regulatory Compliance Mode (Balmon Mode)
+
+Mode darurat untuk kepatuhan regulasi.
+
+Saat mode diaktifkan:
+
+| Parameter       | Value           |
+| --------------- | --------------- |
+| Frequency Range | 5725 - 5825 MHz |
+| Channel Width   | 20 MHz          |
+| Max EIRP        | 36 dBm          |
+
+Sistem melakukan:
+
+- Bulk configuration execution
+- RF recalculation
+- Safe orchestration
+- Compliance validation
+
+---
+
+# 9. EIRP Validation Logic
+
+Sistem wajib menghitung EIRP real.
+
+Rumus:
+
+```text
+EIRP = Tx Power + Antenna Gain - Cable Loss
+```
+
+Contoh:
+
+| Parameter    | Value  |
+| ------------ | ------ |
+| Tx Power     | 18 dBm |
+| Antenna Gain | 25 dBi |
+| Cable Loss   | 1 dB   |
+| Result EIRP  | 42 dBm |
+
+Status:
+
+- ILLEGAL
+- Melebihi batas 36 dBm
+
+Sistem harus otomatis menghitung:
+
+```text
+Max Tx Power = Allowed EIRP - Antenna Gain
+```
+
+Contoh:
+
+```text
+Allowed EIRP = 36 dBm
+Antenna Gain = 25 dBi
+Max TX Power = 11 dBm
+```
+
+---
+
+# 10. Frequency Exclusion Engine
+
+Sistem harus memiliki database exclusion internal.
+
+Kategori:
+
+| Category          | Description             |
+| ----------------- | ----------------------- |
+| DFS Radar         | Radar weather detection |
+| BMKG Radar        | Radar cuaca nasional    |
+| Satellite         | Satelit komunikasi      |
+| Airport Radar     | Radar penerbangan       |
+| Military Reserved | Frekuensi khusus        |
+
+Fungsi:
+
+- Mencegah engineer memilih frekuensi terlarang
+- Regulatory enforcement
+- Compliance validation
+
+---
+
+# 11. Functional Requirements
+
+| ID    | Feature                  | Description                    |
+| ----- | ------------------------ | ------------------------------ |
+| FR-01 | Multi-Vendor Monitoring  | Monitoring Cambium dan Mimosa  |
+| FR-02 | Real-Time Traffic Graph  | Grafik traffic real-time       |
+| FR-03 | RF Analytics             | Analitik RF dan scoring        |
+| FR-04 | Spectrum Visualization   | Heatmap dan spectrum graph     |
+| FR-05 | Frequency Recommendation | Rekomendasi frekuensi terbaik  |
+| FR-06 | Remote Configuration     | Remote configuration execution |
+| FR-07 | Bulk Configuration       | Eksekusi massal                |
+| FR-08 | Safe Commit              | Safe apply dan rollback        |
+| FR-09 | Compliance Mode          | Regulatory automation          |
+| FR-10 | Frequency Blacklist      | Frequency exclusion database   |
+| FR-11 | Topology Visualization   | Dependency awareness           |
+| FR-12 | Alerting System          | Telegram/email alert           |
+| FR-13 | Audit Logging            | Immutable activity log         |
+| FR-14 | Device Health Monitoring | CPU, RAM, Temperature          |
+| FR-15 | Firmware Compliance      | Firmware validation            |
+
+---
+
+# 12. Non-Functional Requirements
+
+| Requirement           | Target      |
+| --------------------- | ----------- |
+| Max Devices           | 5000+       |
+| Dashboard Latency     | < 2 seconds |
+| Polling Success Rate  | > 99%       |
+| Config Success Rate   | > 99%       |
+| Rollback Success Rate | 100%        |
+| API Availability      | 99.9%       |
+| Audit Log Retention   | 2 years     |
+| Metrics Retention     | 12 months   |
+| Concurrent Workers    | 1000+       |
+
+---
+
+# 13. Database Design (High-Level)
+
+## Radios
+
+| Field            | Type    |
+| ---------------- | ------- |
+| ID               | UUID    |
+| Vendor           | String  |
+| Model            | String  |
+| IP Address       | String  |
+| MAC Address      | String  |
+| Firmware Version | String  |
+| Antenna Gain     | Integer |
+| Frequency        | Integer |
+| Channel Width    | Integer |
+| Tx Power         | Integer |
+| Country Code     | String  |
+| GPS Sync         | Boolean |
+| Parent Radio ID  | UUID    |
+
+## Metrics
+
+| Field       | Type      |
+| ----------- | --------- |
+| Radio ID    | UUID      |
+| RSSI        | Float     |
+| SNR         | Float     |
+| CINR        | Float     |
+| Noise Floor | Float     |
+| Throughput  | Float     |
+| Retry Rate  | Float     |
+| Timestamp   | Timestamp |
+
+## Audit Logs
+
+| Field      | Type      |
+| ---------- | --------- |
+| User ID    | UUID      |
+| Action     | String    |
+| Device ID  | UUID      |
+| Old Config | JSONB     |
+| New Config | JSONB     |
+| Status     | String    |
+| Timestamp  | Timestamp |
+
+---
+
+# 14. Alerting System
+
+Jenis alert:
+
+| Alert Type           | Trigger                  |
+| -------------------- | ------------------------ |
+| Link Down            | Device unreachable       |
+| High Noise           | Noise threshold exceeded |
+| DFS Event            | Radar detection          |
+| High Retry Rate      | Retry anomaly            |
+| High Temperature     | Overheat                 |
+| Compliance Violation | EIRP violation           |
+| Firmware Outdated    | Unsupported firmware     |
+
+Notification channels:
+
+- Telegram
+- Email
+- Webhook
+- Slack (future)
+
+---
+
+# 15. Security Requirements
+
+| Requirement           | Description                 |
+| --------------------- | --------------------------- |
+| RBAC                  | Role-based access control   |
+| SNMPv3                | Secure SNMP preferred       |
+| Encrypted Credentials | AES encrypted secrets       |
+| Audit Logging         | Immutable logs              |
+| MFA                   | Multi-factor authentication |
+| API Authentication    | JWT/OAuth2                  |
+| Session Expiry        | Automatic timeout           |
+
+---
+
+# 16. Risks & Mitigation
+
+| Risk                  | Impact                  | Mitigation                   |
+| --------------------- | ----------------------- | ---------------------------- |
+| Mass Frequency Change | Network outage          | Topology-aware orchestration |
+| Invalid Config        | Device isolation        | Rollback engine              |
+| RF Interference       | Throughput degradation  | RF scoring engine            |
+| Compliance Failure    | Regulatory issue        | Compliance engine            |
+| Firmware Bug          | Device instability      | Firmware validation          |
+| Queue Failure         | Execution inconsistency | Persistent queue system      |
+
+---
+
+# 17. Development Roadmap
+
+# Phase 1 — Monitoring Foundation
+
+Features:
+
+- Inventory management
+- Device discovery
+- Real-time monitoring
+- Traffic graph
+- Alerting
+
+# Phase 2 — RF Intelligence
+
+Features:
+
+- RF analytics
+- Spectrum visualization
+- Frequency scoring
+- Historical analytics
+
+# Phase 3 — Safe Orchestration
+
+Features:
+
+- Remote configuration
+- Bulk actions
+- Safe commit
+- Rollback engine
+- Topology awareness
+
+# Phase 4 — Compliance Automation
+
+Features:
+
+- Balmon mode
+- EIRP calculation
+- Frequency exclusion
+- Compliance enforcement
+
+# Phase 5 — AI Optimization
+
+Features:
+
+- Predictive RF analytics
+- AI recommendation
+- Autonomous optimization
+- Interference prediction
+
+---
+
+# 18. Future Enhancements
+
+Planned future features:
+
+- AI-based interference prediction
+- RF heatmap visualization
+- Mobile application
+- Multi-region clustering
+- GIS integration
+- Fiber + wireless topology mapping
+- OSPF/BGP visibility
+- SLA analytics
+
+---
+
+# 19. Final Engineering Principles
+
+Platform ini wajib mengikuti prinsip berikut:
+
+1. Safety over automation
+2. Compliance by design
+3. Rollback first architecture
+4. Topology-aware orchestration
+5. RF engineering driven decisions
+6. Immutable auditability
+7. High scalability
+8. Vendor abstraction architecture
+
+---
+
+# 20. Conclusion
+
+RSOCP dirancang sebagai platform orkestrasi RF modern untuk kebutuhan ISP/WISP yang membutuhkan:
+
+- centralized monitoring
+- RF intelligence
+- regulatory compliance
+- scalable orchestration
+- safe automation
+
+Platform ini ditujukan menjadi fondasi sistem manajemen radio generasi berikutnya yang dapat berkembang dari monitoring platform menjadi autonomous RF optimization system.
