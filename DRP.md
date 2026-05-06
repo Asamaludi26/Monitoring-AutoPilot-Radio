@@ -1,12 +1,13 @@
 # Disaster Recovery Plan (DRP) & Queue Management
 
-## RF Spectrum Orchestration & Compliance Platform (RSOCP / RSTO)
+## RF Spectrum Orchestration & Compliance Platform (RSOCP)
 
-**Version:** 1.1
+**Version:** 1.2
 **Environment Target:** Production (Distributed System)
 **Architecture Pattern:** Distributed Worker + Queue-Based Orchestration (BullMQ)
 **Data Layer:** PostgreSQL + TimescaleDB
-**Execution Layer:** Worker Node (Go / NestJS)
+**Execution Layer:** Worker Node (Go Polling Service + NestJS BullMQ)
+**Revisi:** 2026-05-07 — Penambahan RTO/RPO, Escalation Matrix, Balmon DRP
 
 ---
 
@@ -22,6 +23,28 @@ Dokumen ini mendefinisikan prosedur Disaster Recovery (DRP) untuk:
 - Menetapkan **strategi backup & restore PostgreSQL (PITR-ready)**
 
 Dokumen ini bersifat **mandatory reference** untuk tim **DevOps, SRE, dan Network Operations**.
+
+---
+
+## 1a. RTO & RPO Objectives
+
+> Definisi RTO/RPO adalah kontrak operasional yang mengikat seluruh tim DevOps, SRE, dan Network Ops. Nilai di bawah ditentukan berdasarkan criticality komponen dan kemampuan recovery teknis yang tersedia.
+
+| Komponen                        | RTO (Recovery Time Objective) | RPO (Recovery Point Objective)      | Justifikasi                                                                                                    |
+| ------------------------------- | ----------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **API Backend (NestJS)**        | ≤ 5 menit                     | N/A (stateless)                     | Container restart otomatis via K8s/Docker; tidak menyimpan state lokal                                         |
+| **Worker Cluster (BullMQ)**     | ≤ 10 menit                    | ≤ 30 detik (job state di Redis AOF) | Job state persists di Redis; AOF snapshot interval 5 detik                                                     |
+| **Go Polling Service**          | ≤ 5 menit                     | N/A (data polling ulang otomatis)   | Restart dan polling dimulai dari awal; data metrik tidak hilang permanen karena TimescaleDB menyimpan historis |
+| **Redis (Queue + Cache)**       | ≤ 10 menit                    | ≤ 5 menit (AOF + snapshot)          | AOF enabled dengan `appendfsync everysec`; snapshot setiap 15 menit                                            |
+| **PostgreSQL (Config + Audit)** | ≤ 30 menit                    | ≤ 5 menit (WAL archiving)           | WAL streaming ke storage offsite; PITR tersedia hingga granularitas 1 menit                                    |
+| **TimescaleDB (Metrics)**       | ≤ 30 menit                    | ≤ 15 menit (snapshot)               | Data metrik bersifat append-only; gap kecil dapat ditoleransi (monitoring bukan transaksi keuangan)            |
+| **Full Platform**               | ≤ 60 menit                    | ≤ 15 menit                          | Skenario catastrophic failure; restore dari last valid snapshot                                                |
+
+> **Alasan nilai RTO API ≤ 5 menit:** Sistem bersifat stateless (state di DB), Kubernetes health-check akan mendeteksi container tidak sehat dalam 30 detik dan restart. Rolling update menjamin zero-downtime saat deploy normal.
+
+> **Alasan nilai RPO PostgreSQL ≤ 5 menit:** WAL archiving real-time ke offsite storage (S3-compatible) memungkinkan PITR. Gap 5 menit adalah buffer konservatif untuk latency arsip WAL. Audit log bersifat append-only sehingga kehilangan data sangat minimal.
+
+---
 
 ---
 
@@ -265,8 +288,9 @@ node scripts/resume-queue.js
 
 Scale worker:
 
-```
-docker scale rsto-worker=5
+```bash
+# Benar: gunakan docker compose up --scale (sintaks docker scale sudah deprecated sejak Docker 1.13)
+docker compose up -d --scale rsto-worker=5
 ```
 
 ---
@@ -435,3 +459,49 @@ DRP ini memastikan:
 - Operasional tetap berjalan meskipun API tidak tersedia
 
 Dokumen ini wajib diuji secara berkala melalui **failure simulation & chaos testing**.
+
+---
+
+## 12. Escalation Matrix
+
+Seluruh insiden harus di-escalate mengikuti urutan berikut berdasarkan severity:
+
+| Level             | Severity                                                          | Kondisi                        | PIC Pertama    | Escalation (jika >15 menit)        |
+| ----------------- | ----------------------------------------------------------------- | ------------------------------ | -------------- | ---------------------------------- |
+| **P1 — Critical** | Seluruh platform down, Balmon Mode gagal, mass rollback triggered | Platform unavailable > 5 menit | SRE On-Call    | Head of Engineering + Network Lead |
+| **P2 — High**     | Worker crash, >10% device gagal dikonfigurasi, Redis crash        | Partial system failure         | DevOps On-Call | SRE Lead                           |
+| **P3 — Medium**   | TimescaleDB overload, single device unreachable, metrics delay    | Degraded performance           | NOC Operator   | DevOps On-Call                     |
+| **P4 — Low**      | Slow query, non-critical service degradation                      | Performance issue              | DevOps         | Log & monitor                      |
+
+### 12.1 Prosedur Eskalasi P1
+
+1. **T+0:** NOC Operator atau Alertmanager mendeteksi insiden → buat tiket insiden
+2. **T+2 menit:** SRE On-Call dinotifikasi via Telegram alert channel
+3. **T+5 menit:** SRE mulai triase dan isolasi komponen bermasalah
+4. **T+15 menit:** Jika belum resolved → eskalasi ke Head of Engineering + Network Lead
+5. **T+30 menit:** Status update wajib dikirim ke channel stakeholder
+6. **T+RTO:** Platform kembali online → post-incident report dibuat dalam 24 jam
+
+### 12.2 Balmon Mode — Prosedur Khusus Insiden
+
+> **Balmon Mode adalah operasi kritikal.** Kegagalan saat Balmon Mode aktif dapat menyebabkan perangkat terjebak dalam konfigurasi tidak valid (melanggar regulasi atau tidak dapat reconnect).
+
+| Kondisi                                      | Tindakan Wajib                                                                                              |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Balmon activation gagal di >5% device        | Hentikan eksekusi batch; jalankan rollback massal via `./scripts/rollback-config.sh --scope=balmon`         |
+| Worker crash saat Balmon execution           | Identifikasi device yang sudah dikonfigurasi vs belum via `config_history`; lanjutkan dari checkpoint       |
+| API down saat Balmon aktif                   | Gunakan CLI fallback; jangan biarkan device dalam kondisi channel_width=20 tanpa validasi frekuensi         |
+| Device tidak reconnect setelah Balmon config | Rollback otomatis (30 detik timeout) seharusnya sudah berjalan; jika tidak, lakukan rollback manual via SSH |
+
+---
+
+## 13. Jadwal Testing & Validasi DRP
+
+| Aktivitas                               | Frekuensi                 | PIC                 |
+| --------------------------------------- | ------------------------- | ------------------- |
+| Worker crash simulation                 | Monthly                   | DevOps/SRE          |
+| Redis failover drill                    | Monthly                   | DevOps              |
+| PostgreSQL PITR test restore            | Quarterly                 | DBA                 |
+| Full platform failover drill (Game Day) | Semi-annual               | SRE + Engineering   |
+| Balmon Mode rollback drill              | Quarterly                 | Network Lead + SRE  |
+| DRP document review & update            | Annual atau post-incident | Head of Engineering |

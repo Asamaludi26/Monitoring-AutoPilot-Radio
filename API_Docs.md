@@ -2,10 +2,11 @@
 
 ## RF Spectrum Orchestration & Compliance Platform (RSOCP)
 
-Version: 1.0
+Version: 2.0
 Base URL: `/api/v1`
-Protocol: HTTPS
-Authentication: JWT Bearer Token
+WebSocket URL: `wss://api.rsocp.yourdomain.com/events`
+Protocol: HTTPS + WebSocket (WSS)
+Authentication: JWT Bearer Token (`Authorization: Bearer <token>`)
 Content-Type: `application/json`
 
 ---
@@ -14,25 +15,25 @@ Content-Type: `application/json`
 
 RSOCP API menyediakan endpoint untuk:
 
-* Authentication & Authorization
-* Inventory Management
-* Real-Time Monitoring
-* RF Analytics
-* Frequency Recommendation
-* Safe Configuration Orchestration
-* Regulatory Compliance Automation
-* Alerting
-* Audit Logging
-* Topology Visualization
+- Authentication & Authorization (dengan MFA TOTP)
+- Inventory Management
+- Real-Time Monitoring (REST polling + WebSocket push)
+- RF Analytics
+- Frequency Recommendation
+- Safe Configuration Orchestration
+- Regulatory Compliance Automation (Balmon Mode)
+- Alerting
+- Audit Logging
+- Topology Visualization
 
 API mengikuti prinsip:
 
-* RESTful Design
-* Stateless Authentication
-* RBAC Enforcement
-* Idempotent Execution
-* Safe Rollback Architecture
-* Topology-Aware Operations
+- RESTful Design
+- Stateless Authentication
+- RBAC Enforcement
+- Idempotent Execution
+- Safe Rollback Architecture
+- Topology-Aware Operations
 
 ---
 
@@ -135,7 +136,7 @@ GET /users
 
 ### Required Role
 
-* SUPER_ADMIN
+- SUPER_ADMIN
 
 ### Response
 
@@ -194,8 +195,8 @@ POST /devices
 
 ### Required Role
 
-* SUPER_ADMIN
-* NETWORK_ENGINEER
+- SUPER_ADMIN
+- NETWORK_ENGINEER
 
 ### Request Body
 
@@ -504,10 +505,7 @@ GET /rf-analysis/{deviceId}/interference
 {
   "device_id": "uuid",
   "detected_interference": true,
-  "adjacent_channels": [
-    5765,
-    5785
-  ],
+  "adjacent_channels": [5765, 5785],
   "severity": "MEDIUM"
 }
 ```
@@ -619,10 +617,7 @@ POST /orchestration/bulk
 
 ```json
 {
-  "devices": [
-    "uuid-1",
-    "uuid-2"
-  ],
+  "devices": ["uuid-1", "uuid-2"],
   "configuration": {
     "channel_width": 20
   },
@@ -696,7 +691,7 @@ POST /compliance/balmon/activate
 
 ### Required Role
 
-* SUPER_ADMIN
+- SUPER_ADMIN
 
 ### Request Body
 
@@ -847,13 +842,18 @@ GET /topology
     {
       "id": "uuid",
       "name": "POP A",
-      "type": "POP"
+      "type": "POP",
+      "vendor": "CAMBIUM",
+      "status": "ONLINE",
+      "frequency": 5785
     }
   ],
   "edges": [
     {
-      "source": "uuid-1",
-      "target": "uuid-2"
+      "source": "uuid-pop-a",
+      "target": "uuid-relay-b",
+      "link_quality": 92.5,
+      "distance_km": 12.4
     }
   ]
 }
@@ -868,6 +868,383 @@ GET /topology
 ```http
 GET /topology/{deviceId}/dependencies
 ```
+
+### Response
+
+```json
+{
+  "device_id": "uuid",
+  "parent": {
+    "id": "uuid-parent",
+    "name": "POP A"
+  },
+  "children": [
+    { "id": "uuid-child-1", "name": "Client C" },
+    { "id": "uuid-child-2", "name": "Client D" }
+  ],
+  "affected_devices_if_changed": 2
+}
+```
+
+> **Catatan desain:** Field `affected_devices_if_changed` sangat penting untuk UI — engineer harus tahu berapa banyak downstream device yang akan terdampak sebelum mengeksekusi perubahan konfigurasi.
+
+---
+
+# 13. Alerting API
+
+## 13.1 Get Alerts
+
+### Endpoint
+
+```http
+GET /alerts
+```
+
+### Query Parameters
+
+| Parameter | Type   | Description                  |
+| --------- | ------ | ---------------------------- |
+| severity  | string | LOW, MEDIUM, HIGH, CRITICAL  |
+| status    | string | OPEN, ACKNOWLEDGED, RESOLVED |
+| device_id | uuid   | Filter by device             |
+| page      | number | Pagination page              |
+| limit     | number | Items per page               |
+
+### Response
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "radio_id": "uuid",
+      "alert_type": "HIGH_NOISE",
+      "severity": "HIGH",
+      "message": "Noise floor -70 dBm exceeds threshold -80 dBm",
+      "triggered_at": "2026-05-07T08:00:00Z",
+      "resolved_at": null
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 5 }
+}
+```
+
+---
+
+## 13.2 Acknowledge Alert
+
+### Endpoint
+
+```http
+POST /alerts/{alertId}/acknowledge
+```
+
+### Required Role
+
+- NETWORK_ENGINEER
+- SUPER_ADMIN
+
+### Response
+
+```json
+{
+  "id": "uuid",
+  "status": "ACKNOWLEDGED"
+}
+```
+
+---
+
+# 14. Audit Logging API
+
+## 14.1 Get Audit Logs
+
+### Endpoint
+
+```http
+GET /audit-logs
+```
+
+### Required Role
+
+- SUPER_ADMIN
+- NETWORK_ENGINEER (hanya log milik sendiri atau device yang dikelola)
+
+### Query Parameters
+
+| Parameter | Type     | Description              |
+| --------- | -------- | ------------------------ |
+| user_id   | uuid     | Filter by user           |
+| device_id | uuid     | Filter by device         |
+| action    | string   | Filter by action type    |
+| from      | datetime | Start time (ISO 8601)    |
+| to        | datetime | End time (ISO 8601)      |
+| page      | number   | Pagination page          |
+| limit     | number   | Items per page (max 100) |
+
+### Response
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "user_id": "uuid",
+      "action": "CONFIG_UPDATE",
+      "radio_id": "uuid",
+      "old_config": { "frequency": 5785, "channel_width": 40 },
+      "new_config": { "frequency": 5805, "channel_width": 20 },
+      "status": "SUCCESS",
+      "timestamp": "2026-05-07T10:30:00Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 312 }
+}
+```
+
+---
+
+# 15. Authentication — MFA API
+
+## 15.1 MFA Verify (Step 2 Login)
+
+### Endpoint
+
+```http
+POST /auth/mfa/verify
+```
+
+### Request Body
+
+```json
+{
+  "mfa_session_token": "short-lived-jwt",
+  "totp_code": "123456"
+}
+```
+
+### Response (Success)
+
+```json
+{
+  "access_token": "jwt-token",
+  "refresh_token": "refresh-token",
+  "expires_in": 900
+}
+```
+
+### Response (Failed)
+
+```json
+{
+  "status_code": 401,
+  "error": "Unauthorized",
+  "message": "Invalid TOTP code",
+  "timestamp": "2026-05-07T10:30:00Z"
+}
+```
+
+---
+
+## 15.2 MFA Setup (Enrollment)
+
+### Endpoint
+
+```http
+POST /auth/mfa/setup
+```
+
+### Required Role
+
+- SUPER_ADMIN (mandatory), ENGINEER (optional)
+
+### Response
+
+```json
+{
+  "otpauth_uri": "otpauth://totp/RSOCP:admin?secret=BASE32SECRET&issuer=RSOCP",
+  "qr_code_base64": "data:image/png;base64,...",
+  "backup_codes": ["ABC12-DE345", "FGH67-IJ890"]
+}
+```
+
+> **Keamanan:** `backup_codes` hanya ditampilkan **satu kali** saat enrollment. Setelah endpoint ini dipanggil, server hanya menyimpan hash dari backup codes.
+
+---
+
+# 16. WebSocket Events API
+
+## 16.1 Koneksi
+
+```text
+WSS: wss://api.rsocp.yourdomain.com/ws
+Header: Authorization: Bearer <access_token>
+```
+
+## 16.2 Subscribe to Device Metrics
+
+### Client → Server
+
+```json
+{
+  "event": "subscribe",
+  "data": {
+    "channel": "device.metrics",
+    "device_id": "uuid"
+  }
+}
+```
+
+### Server → Client (setiap polling interval)
+
+```json
+{
+  "event": "metrics.updated",
+  "data": {
+    "device_id": "uuid",
+    "rssi": -61,
+    "snr": 29,
+    "noise_floor": -91,
+    "throughput_tx": 118.5,
+    "throughput_rx": 115.2,
+    "timestamp": "2026-05-07T10:30:15Z"
+  }
+}
+```
+
+## 16.3 Job Progress Events
+
+### Server → Client (saat orchestration berjalan)
+
+```json
+{
+  "event": "orchestration.progress",
+  "data": {
+    "job_id": "uuid",
+    "status": "RUNNING",
+    "progress": 65,
+    "success_count": 18,
+    "failed_count": 1,
+    "current_device": "10.10.10.5"
+  }
+}
+```
+
+## 16.4 Alert Push
+
+### Server → Client (real-time alert)
+
+```json
+{
+  "event": "alert.created",
+  "data": {
+    "alert_id": "uuid",
+    "radio_id": "uuid",
+    "alert_type": "LINK_DOWN",
+    "severity": "CRITICAL",
+    "message": "Device 10.10.10.5 unreachable",
+    "triggered_at": "2026-05-07T10:30:30Z"
+  }
+}
+```
+
+> **Alasan menggunakan WebSocket (bukan polling murni):** Untuk event kritis seperti LINK_DOWN, mengandalkan polling REST setiap 30 detik berarti latency notifikasi hingga 30 detik. WebSocket push meminimalkan latency notifikasi ke < 2 detik. REST polling tetap dipertahankan untuk komponen yang tidak memerlukan real-time (historical metrics, audit logs).
+
+---
+
+# 17. Error Response Standard
+
+Semua error response mengikuti format RFC 7807 (Problem Details):
+
+## Standard Error Envelope
+
+```json
+{
+  "status_code": 400,
+  "error": "Bad Request",
+  "message": "Frequency 5600 MHz is inside restricted BMKG_RADAR spectrum (5570-5650 MHz)",
+  "error_code": "FREQ_BLACKLISTED",
+  "path": "/api/v1/frequency/validate",
+  "timestamp": "2026-05-07T10:30:00Z",
+  "request_id": "req-uuid"
+}
+```
+
+## HTTP Status Code Reference
+
+| Status | Error                 | Kondisi                                       |
+| ------ | --------------------- | --------------------------------------------- |
+| `400`  | Bad Request           | Input tidak valid, constraint violation       |
+| `401`  | Unauthorized          | Token tidak ada, expired, atau invalid        |
+| `403`  | Forbidden             | Role tidak memiliki izin untuk aksi ini       |
+| `404`  | Not Found             | Device/resource tidak ditemukan               |
+| `409`  | Conflict              | Duplicate IP address, duplicate job execution |
+| `422`  | Unprocessable Entity  | Validasi bisnis gagal (misal: EIRP illegal)   |
+| `429`  | Too Many Requests     | Rate limit terlampaui                         |
+| `500`  | Internal Server Error | Unhandled exception di server                 |
+| `503`  | Service Unavailable   | Worker tidak tersedia, queue overload         |
+
+## Application Error Codes
+
+| `error_code`         | Deskripsi                                           |
+| -------------------- | --------------------------------------------------- |
+| `FREQ_BLACKLISTED`   | Frekuensi masuk dalam daftar exclusion              |
+| `EIRP_EXCEEDED`      | Kalkulasi EIRP melebihi 36 dBm                      |
+| `DEVICE_UNREACHABLE` | SNMP/SSH timeout ke device                          |
+| `ROLLBACK_TRIGGERED` | Safe commit gagal, rollback dijalankan              |
+| `BALMON_ACTIVE`      | Operasi tidak bisa dilakukan saat Balmon Mode aktif |
+| `JOB_DUPLICATE`      | Job dengan execution_hash yang sama sudah ada       |
+| `TOPOLOGY_CONFLICT`  | Perubahan akan menyebabkan downstream outage        |
+| `MFA_REQUIRED`       | Login berhasil tetapi TOTP verifikasi diperlukan    |
+| `MFA_INVALID`        | TOTP code tidak valid atau expired                  |
+
+---
+
+# 18. Rate Limiting Headers
+
+Setiap response API menyertakan headers rate limiting:
+
+```http
+X-RateLimit-Limit: 200
+X-RateLimit-Remaining: 197
+X-RateLimit-Reset: 1746614460
+Retry-After: 60          (hanya pada response 429)
+```
+
+Saat rate limit terlampaui (`429 Too Many Requests`):
+
+```json
+{
+  "status_code": 429,
+  "error": "Too Many Requests",
+  "message": "Rate limit exceeded. Try again in 60 seconds.",
+  "error_code": "RATE_LIMIT_EXCEEDED",
+  "timestamp": "2026-05-07T10:30:00Z"
+}
+```
+
+    }
+
+],
+"edges": [
+{
+"source": "uuid-1",
+"target": "uuid-2"
+}
+]
+}
+
+````
+
+---
+
+## 12.2 Get Device Dependency
+
+### Endpoint
+
+```http
+GET /topology/{deviceId}/dependencies
+````
 
 ### Response
 
@@ -1059,15 +1436,15 @@ wss://domain/ws
 
 ## Security Features
 
-* JWT Authentication
-* AES-256-GCM Credential Encryption
-* RBAC Enforcement
-* MFA Support
-* Session Expiration
-* Immutable Audit Logs
-* Input Validation
-* Idempotent Job Execution
-* Safe Rollback Mechanism
+- JWT Authentication
+- AES-256-GCM Credential Encryption
+- RBAC Enforcement
+- MFA Support
+- Session Expiration
+- Immutable Audit Logs
+- Input Validation
+- Idempotent Job Execution
+- Safe Rollback Mechanism
 
 ---
 
@@ -1120,12 +1497,12 @@ X-Request-ID: unique-request-id
 
 Planned future endpoints:
 
-* AI RF Prediction API
-* GIS Integration API
-* Mobile Push Notification API
-* SLA Analytics API
-* Multi-Region Cluster API
-* OSPF/BGP Visibility API
+- AI RF Prediction API
+- GIS Integration API
+- Mobile Push Notification API
+- SLA Analytics API
+- Multi-Region Cluster API
+- OSPF/BGP Visibility API
 
 ---
 
@@ -1133,17 +1510,17 @@ Planned future endpoints:
 
 Dokumentasi API ini dirancang untuk mendukung:
 
-* Monitoring radio multi-vendor
-* RF analytics & optimization
-* Safe orchestration
-* Regulatory compliance automation
-* Scalable distributed operations
-* Secure infrastructure management
+- Monitoring radio multi-vendor
+- RF analytics & optimization
+- Safe orchestration
+- Regulatory compliance automation
+- Scalable distributed operations
+- Secure infrastructure management
 
 API architecture mengikuti prinsip:
 
-* Safety First
-* Compliance by Design
-* High Scalability
-* Rollback-First Automation
-* Topology Awareness
+- Safety First
+- Compliance by Design
+- High Scalability
+- Rollback-First Automation
+- Topology Awareness

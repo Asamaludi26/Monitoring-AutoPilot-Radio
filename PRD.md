@@ -158,25 +158,27 @@ Wireless Radios
 
 # 7. Recommended Technology Stack
 
-| Layer                | Technology              |
-| -------------------- | ----------------------- |
-| Frontend             | React + TypeScript      |
-| UI Framework         | TailwindCSS + Shadcn UI |
-| Visualization        | Apache ECharts          |
-| Backend API          | NestJS                  |
-| Worker Engine        | Go                      |
-| RF Analytics         | Python                  |
-| Queue System         | RabbitMQ                |
-| Relational Database  | PostgreSQL              |
-| Time-Series Database | TimescaleDB             |
-| Cache                | Redis                   |
-| Monitoring           | Grafana                 |
-| Metrics              | Prometheus              |
-| Logs                 | Loki                    |
-| Containerization     | Docker                  |
-| Orchestration        | Kubernetes              |
-| CI/CD                | GitHub Actions          |
-| OS                   | Debian 13               |
+| Layer                | Technology                         | Catatan                                                                                      |
+| -------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------- |
+| Frontend             | React 18 + TypeScript              | Vite build                                                                                   |
+| UI Framework         | TailwindCSS + Shadcn UI            | Komponen aksesibel                                                                           |
+| Visualization        | Apache ECharts                     | Time-series performa tinggi                                                                  |
+| Backend API          | NestJS (Node.js)                   | Modular, DI, TypeScript-native                                                               |
+| Worker Engine        | BullMQ (NestJS) + Go               | BullMQ untuk orchestration queue; Go untuk high-frequency SNMP polling                       |
+| RF Analytics         | Python (FastAPI microservice)      | NumPy/SciPy untuk DSP & scoring                                                              |
+| **Queue System**     | **BullMQ (Redis-backed)**          | **Berjalan di atas Redis yang sudah ada di stack; tidak memerlukan message broker terpisah** |
+| Relational Database  | PostgreSQL 15 + Prisma ORM         | ACID, type-safe queries                                                                      |
+| Time-Series Database | TimescaleDB (PostgreSQL extension) | Hypertable native, SQL-compatible                                                            |
+| Cache                | Redis 7                            | In-memory, digunakan bersama BullMQ                                                          |
+| Monitoring           | Grafana                            | Dashboard observability                                                                      |
+| Metrics              | Prometheus                         | Scraping + alerting rules                                                                    |
+| Logs                 | Loki                               | Log aggregation                                                                              |
+| Containerization     | Docker + Docker Compose            | Reproduktibilitas lingkungan                                                                 |
+| Orchestration        | Kubernetes                         | Auto-scaling, HA production                                                                  |
+| CI/CD                | GitHub Actions                     | Native GitHub integration                                                                    |
+| OS                   | Debian 13                          | Stabilitas LTS                                                                               |
+
+> **Keputusan Arsitektur — Queue System:** Platform ini menggunakan **BullMQ (Redis-backed)** sebagai queue engine, bukan RabbitMQ. Alasan: (1) Redis sudah menjadi dependency wajib untuk caching; menambah RabbitMQ akan menambah operational overhead tanpa manfaat signifikan pada skala target. (2) BullMQ menyediakan fitur job prioritization, delay, retry dengan exponential backoff, dan dead-letter queue yang cukup untuk kebutuhan orchestration platform ini. (3) BullMQ terintegrasi native dengan ekosistem NestJS via `@nestjs/bull`. (4) Jika di masa depan diperlukan multi-broker atau event streaming, migrasi ke Kafka dapat dilakukan secara bertahap tanpa mengubah business logic.
 
 ---
 
